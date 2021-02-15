@@ -608,11 +608,11 @@ class CommunicationHandler(object):
 def recv_helper_thread(queue, counter, local_rank, tensor_name,
                        src_rank, tag, tensor_shape, dtype,
                        sub_process_group, num_iterations):
-    torch.cuda.set_device(local_rank)
+    # torch.cuda.set_device(local_rank)
     # This method is to be executed from a helper daemon thread.
     for i in range(num_iterations):
         tensor = _recv(
-            tensor_name, local_rank, src_rank, tensor_shape=tensor_shape,
+            tensor_name, src_rank, tensor_shape=tensor_shape,
             dtype=dtype, tag=tag,
             sub_process_group=sub_process_group)
         queue.add(tensor)
@@ -621,7 +621,7 @@ def recv_helper_thread(queue, counter, local_rank, tensor_name,
 def send_helper_thread(queue, counter, local_rank, tensor_name,
                        src_rank, dst_rank, tag,
                        sub_process_group, num_iterations):
-    torch.cuda.set_device(local_rank)
+    # torch.cuda.set_device(local_rank)
     # This method is to be executed from a helper daemon thread.
     for i in range(num_iterations):
         tensor = queue.remove()
@@ -630,7 +630,7 @@ def send_helper_thread(queue, counter, local_rank, tensor_name,
               sub_process_group=sub_process_group)
     counter.decrement()
 
-def _recv(tensor_name, local_rank, src_rank, tensor_shape=None, dtype=torch.float32,
+def _recv(tensor_name, src_rank, tensor_shape=None, dtype=torch.float32,
           tensor=None, tag=None, sub_process_group=None):
     """
     Receives tensor by calling PyTorch's recv() call.
@@ -654,7 +654,10 @@ def _recv(tensor_name, local_rank, src_rank, tensor_shape=None, dtype=torch.floa
                                          received_tensor_shape))
 
         # Receive tensor.
-        tensor = torch.zeros(received_tensor_shape, dtype=dtype, device=local_rank)
+        if dtype == torch.bool:
+            tensor = torch.zeros(received_tensor_shape, dtype=torch.int8, device=torch.device('cuda'))
+        else:
+            tensor = torch.zeros(received_tensor_shape, dtype=dtype, device=torch.device('cuda'))
         dist.broadcast(tensor=tensor,
                        src=src_rank,
                        group=sub_process_group)
@@ -676,6 +679,8 @@ def _recv(tensor_name, local_rank, src_rank, tensor_shape=None, dtype=torch.floa
         tensor = tensor.cuda()
 
     assert tensor.is_cuda
+    if dtype == torch.bool:
+        return tensor.bool()
     return tensor
 
 def _send(tensor, tensor_name, src_rank, dst_rank, tag, sub_process_group=None):
@@ -694,6 +699,8 @@ def _send(tensor, tensor_name, src_rank, dst_rank, tag, sub_process_group=None):
                       group=sub_process_group)
 
         # Send tensor.
+        if tensor.dtype == torch.bool:
+            tensor = tensor.to(torch.int8)
         contiguous_tensor = tensor.detach().clone()
         dist.broadcast(tensor=contiguous_tensor.contiguous(),
                        src=src_rank,
@@ -710,15 +717,15 @@ def _send(tensor, tensor_name, src_rank, dst_rank, tag, sub_process_group=None):
         dist.send(tensor=tensor, dst=dst_rank, tag=tag)
 
 
-def i_send(tensor, dst, tag):
-    dist.isend(tensor=tensor, dst=dst_rank, tag=tag)
+# def i_send(tensor, dst, tag):
+#     dist.isend(tensor=tensor, dst=dst_rank, tag=tag)
 
 
-def i_recv(tensor, dst, tag):
-    dist.irecv(tensor=tensor, dst=dst_rank, tag=tag)
+# def i_recv(tensor, dst, tag):
+#     dist.irecv(tensor=tensor, dst=dst_rank, tag=tag)
 
-def _send(tensor, dst, tag):
-    dist.send(tensor=tensor, dst=dst_rank, tag=tag)
+# def _send(tensor, dst, tag):
+#     dist.send(tensor=tensor, dst=dst_rank, tag=tag)
 
-def _recv(tensor, dst, tag):
-    dist.irecv(tensor=tensor, dst=dst_rank, tag=tag)
+# def _recv(tensor, dst, tag):
+#     dist.irecv(tensor=tensor, dst=dst_rank, tag=tag)
