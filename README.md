@@ -4,6 +4,8 @@ This repository is under actively updating and merging our development branches.
 
 README is simultaneously updating.
 
+If you have any questions about VPipe, please contact sxzhao@cs.hku.hk for quick response.
+
 ## Setup
 
 For multi-node, make sure [nv_peer_mem](https://github.com/Mellanox/nv_peer_memory) driver is installed to achieve optimal communication performance.
