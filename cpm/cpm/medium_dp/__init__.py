@@ -36,12 +36,7 @@ def model(criterion, partition, recompute_ratio):
         (Stage(inputs[0], outputs[0], declares[0], calculations[0], recompute_ratio[0]), replace(inputs[0]), outputs[0]),
         (Stage(inputs[1], outputs[1], declares[1], calculations[1], recompute_ratio[1]), replace(inputs[1]), outputs[1]),
         (Stage(inputs[2], outputs[2], declares[2], calculations[2], recompute_ratio[2]), replace(inputs[2]), outputs[2]),
-        (Stage(inputs[3], outputs[3], declares[3], calculations[3], recompute_ratio[3]), replace(inputs[3]), outputs[3]),
-        (Stage(inputs[4], outputs[4], declares[4], calculations[4], recompute_ratio[4]), replace(inputs[4]), outputs[4]),
-        (Stage(inputs[5], outputs[5], declares[5], calculations[5], recompute_ratio[5]), replace(inputs[5]), outputs[5]),
-        (Stage(inputs[6], outputs[6], declares[6], calculations[6], recompute_ratio[6]), replace(inputs[6]), outputs[6]),
-        (Stage(inputs[7], outputs[7], declares[7], calculations[7], recompute_ratio[7]), replace(inputs[7]), outputs[7]),
-        (criterion, outputs[7], ["loss"])
+        (criterion, outputs[2], ["loss"])
     ]
 
 def replace(inputs):

@@ -209,6 +209,8 @@ class CrossEntropyWrapper(nn.Module):
         output = torch.sum(output * mask.unsqueeze(-1), 1) / torch.sum(mask, -1).unsqueeze(-1)
         # get the label of the last token
         labels = labels.float()
+        if mask.dtype == torch.float16:
+            labels = labels.half()
         labels = (torch.sum(labels * mask, 1) / torch.sum(mask, -1)).long()
         # cross_entropy loss
         losses = vocab_parallel_cross_entropy(output.unsqueeze(1).contiguous().float(), labels.unsqueeze(1))
@@ -219,8 +221,8 @@ def main():
     global args, best_prec1
     args = parser.parse_args()
     args.data = args.data_dir
-    # torch.cuda.set_device(args.local_rank)
-    os.environ["CUDA_VISIBLE_DEVICES"]=f"{args.local_rank}"
+    torch.cuda.set_device(args.local_rank)
+    # os.environ["CUDA_VISIBLE_DEVICES"]=f"{args.local_rank}"
 
     criterion = CrossEntropyWrapper()
 
@@ -230,9 +232,9 @@ def main():
     model = module.model(criterion, partition["partition"], partition["recompute_ratio"])
 
     training_tensor_shapes = {"input0": [1, 696], "input1": [1, 696], "input2": [1, 1, 696, 696],
-                              "target": [1, 696], "mask": [1, 696]}
+                              "target": [1, 696], "mask": [1, 696], "control":[1, 100]}
     dtypes = {"input0": torch.int64, "input1": torch.int64,
-              "input2": torch.float32, "target": torch.int64, "mask": torch.float32}
+              "input2": torch.float32, "target": torch.int64, "mask": torch.float32, "control":torch.int}
     inputs_module_destinations = {"input0": 0, "input1": 0, "input2": 0}
     target_tensor_names = {"target": torch.int64, "mask":torch.float32}
     for module_id, (stage, inputs, outputs) in enumerate(model[:-1]):  # Skip last layer (loss).
@@ -459,7 +461,10 @@ def train(train_loader, r, optimizer, epoch):
             if not weight_stash:
                 r.run_backward()
             else:
-                optimizer.zero_grad()
+                if args.fp16:
+                    r.zero_grad()
+                else:
+                    optimizer.zero_grad()
                 optimizer.load_old_params()
                 r.run_backward()
                 optimizer.load_new_params()
@@ -471,7 +476,10 @@ def train(train_loader, r, optimizer, epoch):
             if not weight_stash:
                 r.run_backward()
             else:
-                optimizer.zero_grad()
+                if args.fp16:
+                    r.zero_grad()
+                else:
+                    optimizer.zero_grad()
                 optimizer.load_old_params()
                 r.run_backward()
                 optimizer.load_new_params()
@@ -479,7 +487,10 @@ def train(train_loader, r, optimizer, epoch):
 
         if not weight_stash:
             optimizer.base_optimizer.step()
-            optimizer.zero_grad()
+            if args.fp16:
+                r.zero_grad()
+            else:
+                optimizer.zero_grad()
 
     if args.sync_mode == BSP:
         accumulation_steps = 32

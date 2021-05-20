@@ -10,6 +10,8 @@ import torch.distributed as dist
 import communication
 import runtime_utilities
 
+from fp16 import FP16_Module
+
 IMAGE_CLASSIFICATION = "image_classification"
 TRANSLATION = "translation"
 SPEECH_TO_TEXT = "speech_to_text"
@@ -27,6 +29,10 @@ class ModulesWithDependencies:
             self._modules.append(module)
             self._all_input_names.append(input_names)
             self._all_output_names.append(output_names)
+        
+        print("Modules with dependencies:")
+        print(self._all_input_names)
+        print(self._all_output_names)
 
     def modules(self):
         return self._modules
@@ -92,6 +98,9 @@ class StageRuntime:
         self.forward_minibatch_id = 0
         self.backward_minibatch_id = 0
         self.criterion_input_name = str(model[-1][1][0])
+        self.fwd_time = 1
+        self.bwd_time = 1
+
 
         tensor_tag = 1
         for (_, input_tensors, output_tensors) in model:
@@ -107,6 +116,9 @@ class StageRuntime:
             self.tensor_tags[target_tensor_name] = tensor_tag
             tensor_tag += 1
         self.tensor_tags["ack"] = tensor_tag
+        tensor_tag += 1
+        ## Add control tensor tag
+        self.tensor_tags["control"] = tensor_tag 
         tensor_tag += 1
 
         module_to_stage_map = configuration_maps['module_to_stage_map']
@@ -165,6 +177,8 @@ class StageRuntime:
             modules = stage_to_module_map[self.stage]
             self.modules_with_dependencies = ModulesWithDependencies(
                 [model[module] for module in modules])
+            # print("Modules with dpendencies:")
+            # print(self.modules_with_dependencies)
             self.is_criterion = self.stage == (self.num_stages - 1)
             if stage_to_depth_map is not None:
                 self.num_warmup_minibatches = stage_to_depth_map[
@@ -194,6 +208,7 @@ class StageRuntime:
 
             for i in range(len(model)-1):
                 for tensor_name in model[i][2]:
+                    #print("Tensor_name: "+tensor_name)
                     if tensor_name in model[i+1][1]:
                         if module_to_stage_map[i] == \
                             module_to_stage_map[i+1]:
@@ -227,8 +242,7 @@ class StageRuntime:
         for i in range(len(modules)):
             modules[i] = modules[i].cuda()
             if self.fp16:
-                import apex.fp16_utils as fp16_utils
-                modules[i] = fp16_utils.BN_convert_float(modules[i].half())
+                modules[i] = FP16_Module(modules[i])
 
         # Initialize all groups in the same order on every worker.
         if stage_to_rank_map is not None:
@@ -279,6 +293,17 @@ class StageRuntime:
         else:
             self.master_parameters = list(self.parameters())
             self.model_parameters = None
+
+###
+###  send ranks and receive ranks add control message
+###
+        if self.stage > 0:
+            self.receive_ranks["control"]=stage_to_rank_map[self.stage-1]
+
+        if self.stage < self.num_stages-1:
+            self.send_ranks["control"]=stage_to_rank_map[self.stage+1]
+
+
 
         if self.comm_handler is not None:
             self.comm_handler.initialize(
@@ -335,6 +360,7 @@ class StageRuntime:
     def train(self, num_iterations):
         self.tensors = []
         self.gradients = {}
+        self.control = []
         self.tensor_shapes = self.training_tensor_shapes
         self.forward_only = False
 
@@ -385,6 +411,12 @@ class StageRuntime:
         if self.forward_only and len(self.tensors) > 0:
             self.tensors.pop(0)
         self.tensors.append({})
+        if len(self.control) > 5:
+            self.control.pop(0)
+        self.control.append({})
+
+        self.control[-1]["forward_receive"]=None
+
         if self.loader_iter is not None:
             input = next(self.loader_iter)
             if self.model_type == TRANSLATION:
@@ -444,6 +476,16 @@ class StageRuntime:
                 if input_name == "ack":
                     continue
 
+                if input_name == "control":
+                    #print("Received control message")
+                    self.control[-1]["forward_receive"] = \
+                        self.comm_handler.recv(
+                            input_name,
+                            forward_minibatch_id=self.forward_minibatch_id,
+                            backward_minibatch_id=self.backward_minibatch_id,
+                            backward=False)
+                    continue
+
                 self.tensors[-1][input_name] = \
                     self.comm_handler.recv(
                         input_name,
@@ -465,6 +507,15 @@ class StageRuntime:
             if output_name == "ack":
                 continue
 
+            if output_name == "control":
+                self.comm_handler.send(
+                    output_name,
+                    self.control[-1]["forward_send"],
+                    forward_minibatch_id=self.forward_minibatch_id,
+                    backward_minibatch_id=self.backward_minibatch_id,
+                    backward=False)  
+                continue
+
             self.comm_handler.send(
                 output_name,
                 self.tensors[-1][output_name],
@@ -479,25 +530,45 @@ class StageRuntime:
     def receive_tensors_backward(self):
         # Receive all required gradients from downstream
         # machines.
+        self.control[-1]["backward_receive"]=None
+
         for output_name in self.send_ranks:
-             if output_name in self.target_tensor_names or "input" in output_name:
+            if output_name in self.target_tensor_names or "input" in output_name:
                 continue
 
-             self.gradients[output_name] = \
+            if output_name == "control":
+                    #print("Received backward control message")
+                    self.control[-1]["backward_receive"] = \
+                        self.comm_handler.recv(
+                            output_name,
+                            forward_minibatch_id=self.forward_minibatch_id,
+                            backward_minibatch_id=self.backward_minibatch_id,
+                            backward=True)
+                    continue
+
+            self.gradients[output_name] = \
                 self.comm_handler.recv(
                     output_name,
                     forward_minibatch_id=self.forward_minibatch_id,
                     backward_minibatch_id=self.backward_minibatch_id,
                     backward=True)
 
-             self.backward_stats.stats['receive_tensors_size'] += \
-                 (self.gradients[output_name].element_size() *
-                  self.gradients[output_name].nelement())
+            self.backward_stats.stats['receive_tensors_size'] += \
+                (self.gradients[output_name].element_size() * self.gradients[output_name].nelement())
 
     def send_tensors_backward(self):
         # Send all required gradients upstream.
         for input_name in self.receive_ranks:
             if input_name in self.target_tensor_names or "input" in input_name:
+                continue
+
+            if input_name == "control":
+                self.comm_handler.send(
+                    input_name,
+                    self.control[-1]["backward_send"],
+                    forward_minibatch_id=self.forward_minibatch_id,
+                    backward_minibatch_id=self.backward_minibatch_id,
+                    backward=True)  
                 continue
 
             self.comm_handler.send(
@@ -524,8 +595,57 @@ class StageRuntime:
         self.receive_tensors_forward()
         tensors = self.tensors[-1]
 
+        #Receive forward stats from the previous worker 
+        
+
+
+
         # Run forward pass.
+        start_time = time.time()
         self._run_forward(tensors)
+        self.fwd_time = time.time()-start_time
+
+        # Set control message
+        
+        fwd_list = None
+        if self.control[-1]["forward_receive"] is not None:
+            fwd_list = self.control[-1]["forward_receive"].tolist()[-1]
+            flag = 0
+            while True:
+                if fwd_list[flag]==0:
+                    break
+                flag += 1
+
+            fwd_list[flag] = int(self.fwd_time * 1000000)
+            fwd_list[flag+1] = int(self.bwd_time * 1000000)
+        else:
+            fwd_list = [int(0)]*100
+            fwd_list[0] = int(self.fwd_time * 1000000)
+            fwd_list[1] = int(self.bwd_time * 1000000)
+
+
+
+        self.control[-1]["forward_send"]=torch.Tensor([fwd_list]).type(torch.int).cuda()
+
+        if self.is_criterion and self.forward_minibatch_id % 256 == 0:
+            print("Last stage execution time stats: ")
+            timelist = self.control[-1]["forward_send"].tolist()[0]
+            i = 0
+            while True:
+                if timelist[i] == 0:
+                    break
+                else:
+                    print("Stage "+str(int(i/2))+" fwd time: "+str(float(timelist[i])/1000000))
+                    print("      "+str(int(i/2))+" bwd time: "+str(float(timelist[i+1])/1000000))
+                    i += 2
+
+            print("Repartition disabled")
+
+
+        ### Check if need repartiton (temp removed)      
+        #
+        #print("forward send")
+        #print(self.control[-1]["forward_send"])
 
         # Send tensors forward.
         self.send_tensors_forward()
@@ -556,6 +676,10 @@ class StageRuntime:
                     output.append(tensors["target"])
                     module_outputs = [module(*output)]
                 elif self.model_type == CPM:
+
+                    # with torch.autograd.profiler.profile(use_cuda=True) as prof:
+                    #     module(tensors[input_names[0]], tensors["target"], tensors["mask"])
+                    # print(prof)
                     module_outputs = [module(tensors[input_names[0]],
                                              tensors["target"],
                                              tensors["mask"])]
@@ -586,14 +710,25 @@ class StageRuntime:
             self.loss = 1
 
     def run_backward(self):
-        if self.is_criterion:
-            for module in self.modules_with_dependencies.modules()[:-1]:
-                module.pre_backward()
-        else:
-            for module in self.modules_with_dependencies.modules():
-                module.pre_backward()
+        # if self.is_criterion:
+        #     for module in self.modules_with_dependencies.modules()[:-1]:
+        #         if self.fp16:
+        #             module.module.pre_backward()
+        #         else:
+        #             module.pre_backward()
+        # else:
+        #     for module in self.modules_with_dependencies.modules():
+        #         if self.fp16:
+        #             module.module.pre_backward()
+        #         else:
+        #             module.pre_backward()
         # Receive input gradients needed for backward pass.
         self.receive_tensors_backward()
+
+        #print("backward receive")
+        #print(self.control[-1]["backward_receive"])
+
+
         # Backward pass through modules in reverse order.
         inputs = {}
         outputs = {}
@@ -647,10 +782,12 @@ class StageRuntime:
         if "loss" in outputs:
             outputs["loss"] *= self.loss_scale
 
+        bwd_start_time = time.time()
         # Perform backward pass.
         torch.autograd.backward(tuple([outputs[output_name] for output_name in outputs]),
                                 grad_tensors=tuple([output_gradients[output_name]
                                                     for output_name in outputs]))
+        self.bwd_time = time.time()-bwd_start_time
 
         if self.model_type == TRANSFORMER:
             self._rescale(tensors["ntokens"].size(0))
@@ -663,6 +800,12 @@ class StageRuntime:
 
             if "input" not in input_name:
                 self.gradients[input_name] = input_gradients[input_name]
+
+
+        self.control[-1]["backward_send"]=torch.zeros([1,100],dtype=torch.int).cuda()
+        #print("backward send")
+        #print(self.control[-1]["backward_send"])
+
 
         # Send output gradients.
         self.send_tensors_backward()
@@ -733,6 +876,7 @@ class StageRuntime:
             return loader_size
 
         num_iterations = loader_size * self.num_ranks_in_first_stage
+        num_iterations -= 1
         assert num_iterations % self.num_ranks_in_stage == 0
         num_iterations = num_iterations // self.num_ranks_in_stage
 

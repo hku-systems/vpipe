@@ -94,9 +94,13 @@ class CommunicationHandler(object):
         Initialize state needed for CommunicationHandler.
         """
         self.receive_ranks = receive_ranks
+        #print("Receive ranks"+str(receive_ranks))
         self.send_ranks = send_ranks
+        #print("Send ranks"+str(send_ranks))
         self.tensor_tags = tensor_tags
+        #print("Tensor tags"+str(tensor_tags))
         self.target_tensor_names = target_tensor_names
+        #print("Target tensor names"+str(target_tensor_names))
         self.training_tensor_dtypes = training_tensor_dtypes
         self.rank_in_stage = rank_in_stage
         self.num_ranks_in_stage = num_ranks_in_stage
@@ -185,8 +189,8 @@ class CommunicationHandler(object):
                         threadsafe_queue.Queue())
                     self.num_forward_threads += 1
 
-        print ("Send ranks: ", self.send_ranks)
-        print ("Receive ranks: ", self.receive_ranks)
+        #print ("Send ranks: ", self.send_ranks)
+        #print ("Receive ranks: ", self.receive_ranks)
 
         # Queues for ack for forward pass-only runs as a clocking mechanism.
         self.num_ack_threads = 0
@@ -249,6 +253,7 @@ class CommunicationHandler(object):
         """
         Start helper communication threads, one for each queue.
         """
+    
         if forward_only:
             self.set_counter(self.num_forward_threads +
                              self.num_ack_threads)
@@ -608,7 +613,7 @@ class CommunicationHandler(object):
 def recv_helper_thread(queue, counter, local_rank, tensor_name,
                        src_rank, tag, tensor_shape, dtype,
                        sub_process_group, num_iterations):
-    # torch.cuda.set_device(local_rank)
+    torch.cuda.set_device(local_rank)
     # This method is to be executed from a helper daemon thread.
     for i in range(num_iterations):
         tensor = _recv(
@@ -621,7 +626,7 @@ def recv_helper_thread(queue, counter, local_rank, tensor_name,
 def send_helper_thread(queue, counter, local_rank, tensor_name,
                        src_rank, dst_rank, tag,
                        sub_process_group, num_iterations):
-    # torch.cuda.set_device(local_rank)
+    torch.cuda.set_device(local_rank)
     # This method is to be executed from a helper daemon thread.
     for i in range(num_iterations):
         tensor = queue.remove()
@@ -655,9 +660,9 @@ def _recv(tensor_name, src_rank, tensor_shape=None, dtype=torch.float32,
 
         # Receive tensor.
         if dtype == torch.bool:
-            tensor = torch.zeros(received_tensor_shape, dtype=torch.int8, device=torch.device('cuda'))
+            tensor = torch.zeros(received_tensor_shape, dtype=torch.int8, device=torch.cuda.current_device())
         else:
-            tensor = torch.zeros(received_tensor_shape, dtype=dtype, device=torch.device('cuda'))
+            tensor = torch.zeros(received_tensor_shape, dtype=dtype, device=torch.cuda.current_device())
         dist.broadcast(tensor=tensor,
                        src=src_rank,
                        group=sub_process_group)
