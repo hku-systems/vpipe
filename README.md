@@ -1,5 +1,7 @@
 # VPipe
 
+About our preprint: You will see a UPDATE of instructions by July 15.
+
 This repository is under actively updating and merging our development branches.
 
 README is simultaneously updating.
