@@ -11,8 +11,9 @@ If you have any questions about VPipe, please contact sxzhao@cs.hku.hk for quick
 
 Repo architecture
 
-runtime: contains our initial system and initial results
-cpm: GPT-2 workaround on a Chinese dataset. Under active development to make vPipe support 3-D parallellism, NCCL backend, and dynamic scaling.
+**runtime**: contains our initial system and initial results
+
+**cpm**: GPT-2 workaround on a Chinese dataset. Under active development to make vPipe support 3-D parallellism, NCCL backend, and dynamic scaling.
 
 ## Setup
 
