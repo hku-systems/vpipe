@@ -1,0 +1,20 @@
+'directory': 'bert'
+'log_directory': 'output'
+'module': 'vgpus=4'
+'data_dir': 'data/hdf5_lower_case_1_seq_len_128_max_pred_20_masked_lm_prob_0.15_random_seed_12345_dupe_factor_5/bookscorpus'
+'config_file': 'vgpus=4/mp_conf.json'
+'partition': 'vgpus=4/vpipe.json'
+'container': 'bert'
+'machines': ['localhost:0', 'localhost:1', 'localhost:2', 'localhost:3']
+'sync_mode': 'asp'
+'batch_size': 16
+'learning_rate': 0.05
+'weight_decay': 0.000
+'epochs': 40
+'print_frequency': 100
+'verbose_frequency': 0
+'compress_activations': False
+'compress_in_gpu': False
+'learning_rate_policy': 'polynomial'
+'model_type': 'bert'
+'distributed_backend': 'gloo'
