@@ -45,6 +45,10 @@ https://github.com/NVIDIA/DeepLearningExamples/blob/24b8c9c7fdfd1fa5b80d5c342f96
 
 ### BERT
 
+```bash
+cd runtime
+```
+
 VPipe's optimal configuration for 8 GPUs
 ```bash
 python driver.py --config_file configs/bert_8vpipe.yml
