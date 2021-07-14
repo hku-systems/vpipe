@@ -1,10 +1,5 @@
 # VPipe
 
-
-This repository is under actively updating and merging our development branches.
-
-README is simultaneously updating.
-
 If you have any questions about VPipe, please contact sxzhao@cs.hku.hk for quick response.
 
 ## Overview
