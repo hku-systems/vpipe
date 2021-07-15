@@ -155,7 +155,7 @@ self.layer149 = GPT2ParallelSelfAttention(1024, 16, 0.1, 0.1)
 self.layer151 = FusedLayerNorm(1024, eps=1e-05, elementwise_affine=True)
 self.layer152 = GPT2ParallelMLP(1024, 0.1)
 self.layer154 = FusedLayerNorm(1024, eps=1e-05, elementwise_affine=True)
-self.layer155 = torch.nn.Linear(in_features=1024, out_features=30000, bias=True)'''
+self.layer155 = torch.nn.Linear(in_features=1024, out_features=30000//get_model_parallel_world_size(), bias=False)'''
 
 def get_caculations():
     return '''out6 = self.layer6(out0)
@@ -307,4 +307,4 @@ out151 = self.layer151(out149)
 out152 = self.layer152(out151)
 out152 = out152 + out149
 out154 = self.layer154(out152)
-out155 = self.layer155(out154)'''
+out155 = gather_from_model_parallel_region(self.layer155(copy_to_model_parallel_region(out154)))'''

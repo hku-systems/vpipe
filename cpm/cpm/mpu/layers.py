@@ -27,6 +27,10 @@ from torch.nn.parameter import Parameter
 
 from .initialize import get_model_parallel_rank
 from .initialize import get_model_parallel_world_size
+from .mappings import copy_to_model_parallel_region
+from .mappings import gather_from_model_parallel_region
+from .mappings import reduce_from_model_parallel_region
+from .mappings import scatter_to_model_parallel_region
 from .utils import divide
 from .utils import VocabUtility
 
@@ -121,11 +125,57 @@ class VocabParallelEmbedding(torch.nn.Module):
         # Mask the output embedding.
         output_parallel[input_mask, :] = 0.0
         # Reduce across all the model parallel GPUs.
-        output = output_parallel
+        output = reduce_from_model_parallel_region(output_parallel)
         return output
 
-    def extra_repr(self):
-        return '{}, {}'.format(self.num_embeddings, self.embedding_dim)
+
+class ParallelEmbedding(torch.nn.Module):
+    """Embedding parallelized in the embedding dimension.
+
+    This is mainly adapted from torch.nn.Embedding and all the default
+    values are kept.
+    Arguments:
+        num_embeddings: vocabulary size.
+        embedding_dim: size of hidden state.
+        init_method: method to initialize weights.
+    """
+    def __init__(self, num_embeddings, embedding_dim,
+                 init_method=init.xavier_normal_,
+                 keep_master_weight_for_test=False):
+        super(ParallelEmbedding, self).__init__()
+        # Keep the input dimensions.
+        self.num_embeddings = num_embeddings
+        self.embedding_dim = embedding_dim
+        # Set some detauls for compatibility.
+        self.padding_idx = None
+        self.max_norm = None
+        self.norm_type = 2.
+        self.scale_grad_by_freq = False
+        self.sparse = False
+        self._weight = None
+        # Divide the weight matrix along the embedding dimension.
+        world_size = get_model_parallel_world_size()
+        self.embedding_dim_per_partition = divide(self.embedding_dim,
+                                                  world_size)
+
+        # Allocate weights.
+        self.weight = Parameter(torch.Tensor(self.num_embeddings,
+                                             self.embedding_dim_per_partition))
+        self.weight.model_parallel = True
+        # And initialize.
+        _initialize_affine_weight(
+            self.weight, self.num_embeddings, self.embedding_dim,
+            self.embedding_dim_per_partition, 1, init_method,
+            stride=1, return_master_weight=False)
+
+    def forward(self, input_):
+        input_parallel = copy_to_model_parallel_region(input_)
+        output_parallel = F.embedding(input_parallel, self.weight,
+                                      self.padding_idx, self.max_norm,
+                                      self.norm_type, self.scale_grad_by_freq,
+                                      self.sparse)
+        output = gather_from_model_parallel_region(output_parallel)
+        return output
 
 
 class ColumnParallelLinear(torch.nn.Module):
@@ -184,12 +234,12 @@ class ColumnParallelLinear(torch.nn.Module):
 
     def forward(self, input_):
         # Set up backprop all-reduce.
-        input_parallel = input_
+        input_parallel = copy_to_model_parallel_region(input_)
         # Matrix multiply.
         output_parallel = F.linear(input_parallel, self.weight, self.bias)
         if self.gather_output:
             # All-gather across the partitions.
-            output = output_parallel
+            output = gather_from_model_parallel_region(output_parallel)
         else:
             output = output_parallel
         return output
@@ -260,11 +310,11 @@ class RowParallelLinear(torch.nn.Module):
         if self.input_is_parallel:
             input_parallel = input_
         else:
-            input_parallel = input_
+            input_parallel = scatter_to_model_parallel_region(input_)
         # Matrix multiply.
         output_parallel = F.linear(input_parallel, self.weight)
         # All-reduce across all the partitions.
-        output_ = output_parallel
+        output_ = reduce_from_model_parallel_region(output_parallel)
         if self.bias is not None:
             output = output_ + self.bias
         else:

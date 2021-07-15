@@ -124,6 +124,14 @@ class StageRuntime:
         module_to_stage_map = configuration_maps['module_to_stage_map']
         stage_to_rank_map = configuration_maps['stage_to_rank_map']
         stage_to_depth_map = configuration_maps['stage_to_depth_map']
+        mp_size = configuration_maps['mp_size']
+
+        delta = rank - rank // mp_size * mp_size
+        import copy
+        stage_to_rank_map_copy = copy.deepcopy(stage_to_rank_map)
+        for stage in stage_to_rank_map:
+            for i in range(len(stage_to_rank_map[stage])):
+                stage_to_rank_map[stage][i] += delta
 
         if module_to_stage_map is None:
             # If IP addresses not specified, resort to all layers on
@@ -155,8 +163,8 @@ class StageRuntime:
 
             # Now, use this mapping to determine the modules contained in
             # each stage.
-            assert 0 <= self.rank < len(rank_to_stage_map)
-            self.num_ranks = len(rank_to_stage_map)
+            assert 0 <= self.rank < len(rank_to_stage_map) * mp_size
+            self.num_ranks = len(rank_to_stage_map) * mp_size
             self.num_stages = len(stage_to_module_map)
             self.stage = rank_to_stage_map[self.rank]
             self.rank_in_stage = stage_to_rank_map[self.stage].index(self.rank)
@@ -208,7 +216,6 @@ class StageRuntime:
 
             for i in range(len(model)-1):
                 for tensor_name in model[i][2]:
-                    #print("Tensor_name: "+tensor_name)
                     if tensor_name in model[i+1][1]:
                         if module_to_stage_map[i] == \
                             module_to_stage_map[i+1]:
@@ -248,9 +255,18 @@ class StageRuntime:
         if stage_to_rank_map is not None:
             groups = []
             for stage in range(self.num_stages):
-                ranks = stage_to_rank_map[stage]
+                ranks = stage_to_rank_map_copy[stage]
                 if len(ranks) > 1:
-                    groups.append(dist.new_group(ranks=ranks))
+                    for i in range(mp_size):
+                        dp_ranks = [r + i for r in ranks]
+                        if self.distributed_backend == "nccl":
+                            group = dist.new_group(ranks=dp_ranks, backend="nccl")
+                            print("Hybrid (Data Parallel + Pipeline Parallel) with NCCL is currently not available. We choose DP using NCCL and PP using GLOO as an alternative.")
+                        else:
+                            group = dist.new_group(ranks=dp_ranks)
+                        if i == delta:
+                            print("DP Group", dp_ranks)
+                            groups.append(group)
                 else:
                     groups.append(None)
             group = groups[self.stage]
@@ -877,7 +893,7 @@ class StageRuntime:
 
         num_iterations = loader_size * self.num_ranks_in_first_stage
         num_iterations -= 1
-        assert num_iterations % self.num_ranks_in_stage == 0
+        #assert num_iterations % self.num_ranks_in_stage == 0
         num_iterations = num_iterations // self.num_ranks_in_stage
 
         return num_iterations

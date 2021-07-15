@@ -30,19 +30,19 @@ class CommunicationHandler(object):
         """
         self.rank = rank
         self.local_rank = local_rank
-        self.backend = backend
+        self.backend = GLOO  # must be gloo now
         self.num_ranks_in_server = num_ranks_in_server
         self.world_size = world_size
         self.fp16 = fp16
         assert num_ranks_in_server > 0
 
         # Initialize the distributed environment.
-        os.environ['MASTER_ADDR'] = master_addr
-        os.environ['MASTER_PORT'] = str(master_port)
-        dist.init_process_group(backend, rank=rank, world_size=world_size)
-        assert dist.get_world_size() == self.world_size
-        print("Finished initializing process group; backend: %s, rank: %d, "
-              "world_size: %d" % (backend, rank, world_size))
+        # os.environ['MASTER_ADDR'] = master_addr
+        # os.environ['MASTER_PORT'] = str(master_port)
+        # dist.init_process_group(GLOO, rank=rank, world_size=world_size)
+        # assert dist.get_world_size() == self.world_size
+        # print("Finished initializing process group; backend: %s, rank: %d, "
+        #       "world_size: %d" % (GLOO, rank, world_size))
 
         # Stores list of ranks of GPUs on the same server.
         self.ranks_in_server = []
@@ -234,14 +234,14 @@ class CommunicationHandler(object):
         backward_num_iterations = num_iterations
 
         if self.num_ranks_in_next_stage > 0:
-            assert forward_num_iterations % self.num_ranks_in_next_stage == 0
+            #assert forward_num_iterations % self.num_ranks_in_next_stage == 0
             forward_num_iterations = forward_num_iterations // \
                 self.num_ranks_in_next_stage
         else:
             forward_num_iterations = 0
 
         if self.num_ranks_in_previous_stage > 0:
-            assert backward_num_iterations % self.num_ranks_in_previous_stage == 0
+            #assert backward_num_iterations % self.num_ranks_in_previous_stage == 0
             backward_num_iterations = backward_num_iterations // \
                 self.num_ranks_in_previous_stage
         else:

@@ -4,6 +4,8 @@ from apex.normalization.fused_layer_norm import FusedLayerNorm
 from mpu.layers import VocabParallelEmbedding
 from mpu.transformer import GPT2ParallelSelfAttention
 from mpu.transformer import GPT2ParallelMLP
+from mpu import copy_to_model_parallel_region, gather_from_model_parallel_region
+from mpu import get_model_parallel_world_size
 
 import torch.utils.checkpoint as cp
 import checkpoint as pipe_cp
