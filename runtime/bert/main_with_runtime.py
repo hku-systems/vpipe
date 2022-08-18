@@ -171,7 +171,8 @@ class pretraining_dataset(Dataset):
 def main():
     global args, best_prec1
     args = parser.parse_args()
-    torch.cuda.set_device(args.local_rank)
+    # torch.cuda.set_device(args.local_rank)
+    os.environ["CUDA_VISIBLE_DEVICES"]=f"{args.local_rank}"
 
     config = BertConfig.from_json_file(args.bert_config)
     # Padding for divisibility by 8
