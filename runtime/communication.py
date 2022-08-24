@@ -142,6 +142,8 @@ class CommunicationHandler(object):
                 self.target_receive_rank_counts[target_receive_rank] += 1
                 self.num_forward_threads += 1
                 self.num_backward_threads += 1
+                if "input" in input_name:
+                    self.num_backward_threads -= 1
         for output_name in self.send_ranks:
             self.backward_receive_queues[output_name] = []
             self.forward_send_queues[output_name] = []
@@ -159,6 +161,8 @@ class CommunicationHandler(object):
                 self.target_send_rank_counts[target_send_rank] += 1
                 self.num_forward_threads += 1
                 self.num_backward_threads += 1
+                if "input" in output_name:
+                    self.num_backward_threads -= 1
 
         for target_tensor_name in self.target_tensor_names:
             # Queues for target in forward pass.
@@ -277,11 +281,12 @@ class CommunicationHandler(object):
 
             for i in range(len(self.receive_ranks[input_name])):
                 if not forward_only:
-                    self.start_helper_thread(
-                        self.send_helper_thread_args,
-                        send_helper_thread,
-                        [input_name, i, True],
-                        num_iterations_for_backward_threads)
+                    if "input" not in input_name:
+                        self.start_helper_thread(
+                            self.send_helper_thread_args,
+                            send_helper_thread,
+                            [input_name, i, True],
+                            num_iterations_for_backward_threads)
                 self.start_helper_thread(
                     self.recv_helper_thread_args,
                     recv_helper_thread,
@@ -296,13 +301,14 @@ class CommunicationHandler(object):
 
             for i in range(len(self.send_ranks[output_name])):
                 if not forward_only:
-                    self.start_helper_thread(
-                        self.recv_helper_thread_args,
-                        recv_helper_thread,
-                        [output_name, i,
-                         self.training_tensor_dtypes[output_name],
-                         True],
-                        num_iterations_for_forward_threads)
+                    if "input" not in output_name:
+                        self.start_helper_thread(
+                            self.recv_helper_thread_args,
+                            recv_helper_thread,
+                            [output_name, i,
+                            self.training_tensor_dtypes[output_name],
+                            True],
+                            num_iterations_for_forward_threads)
                 self.start_helper_thread(
                     self.send_helper_thread_args,
                     send_helper_thread,
