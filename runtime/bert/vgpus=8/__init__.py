@@ -3,6 +3,9 @@ sys.path.append("..")
 from vpipe import Stage
 from vpipe import Bert
 
+def arch():
+    return "bert"
+
 def model(criterion, partition, recompute_ratio):
     _declares = get_declares()
     _calculations = get_caculations()
