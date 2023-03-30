@@ -19,6 +19,10 @@ For multi-node, make sure [nv_peer_mem](https://github.com/Mellanox/nv_peer_memo
 
 1. Setup Enviroment 
 
+Note that you should modify the docker base image version to the Nvidia pytorch docker release 20.01. 
+
+This may help you avoid an issue caused by the PyTorch variable version checking.
+
 Docker file refer to : https://github.com/NVIDIA/DeepLearningExamples/blob/24b8c9c7fdfd1fa5b80d5c342f96dd922feffd24/PyTorch/LanguageModeling/BERT/Dockerfile
 
 
