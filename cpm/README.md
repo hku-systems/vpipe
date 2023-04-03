@@ -1,13 +1,25 @@
 # CPM
 
+## Prerequisites 
+
+The environment should be settled with 
+```bash 
+docker pull dmye/cpm:v0 
+```
+
+To try 3D-parallel, use the large_8/mp_conf.json (tested). 
+
+
 ## Setup
+
+Ignore this if you are using the docker. 
 
 1. Install Python dependencies.
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Install Apex.
+2. Install Apex. Use commits from July 2021 of the Apex repo. 
 ```bash
 git clone https://github.com/NVIDIA/apex
 cd apex
@@ -48,17 +60,18 @@ Set NCCL interface name:
 
 host 0 
 
-```python3 -m launch --nnodes 4 --node_rank 0 --nproc_per_node 8 main_with_runtime.py --data_dir data --master_addr localhost --module large_8 --checkpoint_dir output --partition large_8/gpipe.json --sync_mode asp --distributed_backend nccl --lr 0.000600 --lr_policy polynomial --weight-decay 0.000000 --epochs 20 --print-freq 10 --verbose 0 --num_ranks_in_server 8 --config_path large_8/32dp_conf.json -b 1
+```bash
+python3 -m launch --nnodes 4 --node_rank 0 --nproc_per_node 8 main_with_runtime.py --data_dir data --master_addr localhost --module large_8 --checkpoint_dir output --partition large_8/gpipe.json --sync_mode asp --distributed_backend nccl --lr 0.000600 --lr_policy polynomial --weight-decay 0.000000 --epochs 20 --print-freq 10 --verbose 0 --num_ranks_in_server 8 --config_path large_8/32dp_conf.json -b 1
 ```
 host 1 
-```
+```bash
 python3 -m launch --nnodes 4 --node_rank 1 --nproc_per_node 8 main_with_runtime.py --data_dir data --master_addr 172.31.7.136 --module large_8 --checkpoint_dir output --partition large_8/gpipe.json --sync_mode asp --distributed_backend nccl --lr 0.000600 --lr_policy polynomial --weight-decay 0.000000 --epochs 20 --print-freq 10 --verbose 0 --num_ranks_in_server 8 --config_path large_8/32dp_conf.json -b 1
 ```
 host 2
-```
+```bash
 python3 -m launch --nnodes 4 --node_rank 2 --nproc_per_node 8 main_with_runtime.py --data_dir data --master_addr 172.31.7.136 --module large_8 --checkpoint_dir output --partition large_8/gpipe.json --sync_mode asp --distributed_backend nccl --lr 0.000600 --lr_policy polynomial --weight-decay 0.000000 --epochs 20 --print-freq 10 --verbose 0 --num_ranks_in_server 8 --config_path large_8/32dp_conf.json -b 1
 ```
 host 3
-```
+```bash
 python3 -m launch --nnodes 4 --node_rank 3 --nproc_per_node 8 main_with_runtime.py --data_dir data --master_addr 172.31.7.136 --module large_8 --checkpoint_dir output --partition large_8/gpipe.json --sync_mode asp --distributed_backend nccl --lr 0.000600 --lr_policy polynomial --weight-decay 0.000000 --epochs 20 --print-freq 10 --verbose 0 --num_ranks_in_server 8 --config_path large_8/32dp_conf.json -b 1
 ```
